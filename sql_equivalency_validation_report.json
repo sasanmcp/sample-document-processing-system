@@ -1,0 +1,66 @@
+{
+  "report_metadata": {
+    "report_date": "2025-01-25",
+    "validation_tool": "sql-equivalency___validate_sql_equivalence",
+    "project": "DocumentProcessor - SQL Server to PostgreSQL Migration"
+  },
+  "number_of_statements_processed": 2,
+  "number_of_statements_equivalent": 0,
+  "number_of_statements_non_equivalent": 0,
+  "number_of_statements_with_equivalency_error": 2,
+  "statement_details": [
+    {
+      "statement_id": "view_1",
+      "statement_type": "CREATE VIEW",
+      "view_name": "vw_DocumentSummary",
+      "file_path": "src/DocumentProcessor.Infrastructure/InfrastructureServiceCollectionExtensions.cs",
+      "line_number": 143,
+      "original_statement": "CREATE VIEW vw_DocumentSummary AS\nSELECT\n    documenttypename,\n    status,\n    COUNT(*) AS DocumentCount,\n    AVG(DATEDIFF(SECOND, uploadedat, COALESCE(processedat, GETUTCDATE()))) AS AvgProcessingTimeSeconds,\n    MIN(uploadedat) AS FirstUploadedAt,\n    MAX(uploadedat) AS LastUploadedAt\nFROM dps_dbo.documents\nWHERE isdeleted = 0\nGROUP BY documenttypename, status",
+      "converted_statement": "CREATE VIEW dps_dbo.vw_documentsummary\nAS\nSELECT\n    documenttypename, status, COUNT(*) AS documentcount, AVG(aws_sqlserver_ext.datediff('second', uploadedat::TIMESTAMP, COALESCE(processedat, timezone('UTC', CURRENT_TIMESTAMP(6)))::TIMESTAMP)) AS avgprocessingtimeseconds, MIN(uploadedat) AS firstuploadedat, MAX(uploadedat) AS lastuploadedat\n    FROM dps_dbo.documents\n    WHERE isdeleted = 0\n    GROUP BY documenttypename, status",
+      "conversion_method": "DMS_TOOL",
+      "equivalency_status": "ERROR",
+      "equivalency_tool_output": {
+        "equivalence_status": "UNKNOWN",
+        "result_details": "Z3SqlSolverVerifier stage in formal methods could not prove equivalancy/non-equivalency",
+        "validation_method": "formal_verification",
+        "timestamp": "2025-11-25T23:05:43.606226"
+      },
+      "equivalency_notes": "Tool returned UNKNOWN status, marked as ERROR per transformation definition. The formal verification method could not determine equivalence. Manual review recommended to verify that the PostgreSQL view produces the same results as the SQL Server view."
+    },
+    {
+      "statement_id": "procedure_1",
+      "statement_type": "CREATE PROCEDURE -> CREATE FUNCTION",
+      "procedure_name": "sp_GetRecentDocuments",
+      "file_path": "src/DocumentProcessor.Infrastructure/InfrastructureServiceCollectionExtensions.cs",
+      "line_number": 160,
+      "original_statement": "CREATE PROCEDURE sp_GetRecentDocuments\n    @Days INT = 7,\n    @Status INT = NULL,\n    @DocumentTypeName NVARCHAR(200) = NULL\nAS\nBEGIN\n    SET NOCOUNT ON;\n\n    SELECT\n        id,\n        filename,\n        fileextension,\n        storagepath,\n        filesize,\n        documenttypename,\n        documenttypecategory,\n        status,\n        processingstatus,\n        summary,\n        uploadedat,\n        processedat,\n        processingstartedat,\n        processingcompletedat\n    FROM dps_dbo.documents\n    WHERE isdeleted = 0\n        AND uploadedat >= DATEADD(DAY, -@Days, GETUTCDATE())\n        AND (@Status IS NULL OR status = @Status)\n        AND (@DocumentTypeName IS NULL OR documenttypename = @DocumentTypeName)\n    ORDER BY uploadedat DESC\nEND",
+      "converted_statement": "CREATE OR REPLACE FUNCTION dps_dbo.sp_getrecentdocuments(\n    days INTEGER DEFAULT 7,\n    status_param INTEGER DEFAULT NULL,\n    documenttypename_param VARCHAR(200) DEFAULT NULL\n)\nRETURNS TABLE (\n    id UUID,\n    filename VARCHAR(500),\n    fileextension VARCHAR(50),\n    storagepath VARCHAR(1000),\n    filesize BIGINT,\n    documenttypename VARCHAR(200),\n    documenttypecategory VARCHAR(100),\n    status INTEGER,\n    processingstatus INTEGER,\n    summary TEXT,\n    uploadedat TIMESTAMP,\n    processedat TIMESTAMP,\n    processingstartedat TIMESTAMP,\n    processingcompletedat TIMESTAMP\n)\nLANGUAGE plpgsql\nAS $$\nBEGIN\n    RETURN QUERY\n    SELECT\n        d.id,\n        d.filename,\n        d.fileextension,\n        d.storagepath,\n        d.filesize,\n        d.documenttypename,\n        d.documenttypecategory,\n        d.status,\n        d.processingstatus,\n        d.summary,\n        d.uploadedat,\n        d.processedat,\n        d.processingstartedat,\n        d.processingcompletedat\n    FROM dps_dbo.documents d\n    WHERE d.isdeleted = 0\n        AND d.uploadedat >= (timezone('UTC', CURRENT_TIMESTAMP) - make_interval(days => days))\n        AND (status_param IS NULL OR d.status = status_param)\n        AND (documenttypename_param IS NULL OR d.documenttypename = documenttypename_param)\n    ORDER BY d.uploadedat DESC;\nEND;\n$$",
+      "conversion_method": "MANUAL_AFTER_DMS_FAILURE",
+      "equivalency_status": "ERROR",
+      "equivalency_tool_output": {
+        "equivalence_status": "UNKNOWN",
+        "result_details": "Pipeline execution failed: Invalid expression / Unexpected token. Line 30, Col: 3.\n  ND (@DocumentTypeName IS NULL OR documenttypename = @DocumentTypeName)\n    ORDER BY uploadedat DESC\nEND\nTraceback: Traceback (most recent call last):\n  File \"/QnetCodeStateMachine/lib/python3.10/site-packages/a_tx_science_sql_migration_validation/pipeline/orchestrator.py\", line 151, in run\n    norm_data = NormalizationService().normalize_queries(input_data)\n  File \"/QnetCodeStateMachine/lib/python3.10/site-packages/a_tx_science_sql_migration_validation/pipeline/normalization_service.py\", line 21, in normalize_queries\n    norm_data = sql_glot_normalize(input_data)\n  File \"/QnetCodeStateMachine/lib/python3.10/site-packages/a_tx_science_sql_migration_validation/utils/normalize.py\", line 14, in sql_glot_normalize\n    json_data[\"norm_result\"][\"ms_sql_normalized\"] = sqlglot.transpile(\n  File \"/QnetCodeStateMachine/lib/python3.10/site-packages/sqlglot/__init__.py\", line 177, in transpile\n    for expression in parse(sql, read, error_level=error_level)\n  File \"/QnetCodeStateMachine/lib/python3.10/site-packages/sqlglot/__init__.py\", line 102, in parse\n    return Dialect.get_or_raise(read or dialect).parse(sql, **opts)\n  File \"/QnetCodeStateMachine/lib/python3.10/site-packages/sqlglot/dialects/dialect.py\", line 1058, in parse\n    return self.parser(**opts).parse(self.tokenize(sql), sql)\n  File \"/QnetCodeStateMachine/lib/python3.10/site-packages/sqlglot/parser.py\", line 1598, in parse\n    return self._parse(\n  File \"/QnetCodeStateMachine/lib/python3.10/site-packages/sqlglot/parser.py\", line 1670, in _parse\n    self.raise_error(\"Invalid expression / Unexpected token\")\n  File \"/QnetCodeStateMachine/lib/python3.10/site-packages/sqlglot/parser.py\", line 1711, in raise_error\n    raise error\nsqlglot.errors.ParseError: Invalid expression / Unexpected token. Line 30, Col: 3.\n  ND (@DocumentTypeName IS NULL OR documenttypename = @DocumentTypeName)\n    ORDER BY uploadedat DESC\nEND",
+        "validation_method": "unknown",
+        "timestamp": "2025-11-25T23:06:01.099759"
+      },
+      "equivalency_notes": "Tool returned UNKNOWN status due to parse error, marked as ERROR per transformation definition. The tool failed to parse the SQL Server CREATE PROCEDURE statement. Manual review recommended to verify that the PostgreSQL function produces the same results as the SQL Server procedure."
+    }
+  ],
+  "summary": {
+    "critical_notes": [
+      "CRITICAL: Both statement pairs returned UNKNOWN from the SQL Equivalency tool and were marked as ERROR per transformation definition requirements.",
+      "CRITICAL: The transformation definition states: 'If the tool returns UNKNOWN, mark it as ERROR'",
+      "CRITICAL: No agent judgment was used to determine equivalency - all status values come directly from the SQL Equivalency tool output.",
+      "Manual testing is strongly recommended to verify functional equivalency of both statements.",
+      "The CREATE VIEW conversion used DMS tool successfully but equivalency could not be formally verified.",
+      "The CREATE PROCEDURE was manually converted after DMS failure and equivalency could not be formally verified due to parse errors."
+    ],
+    "recommendations": [
+      "Perform manual testing of vw_documentsummary view with sample data to verify results match SQL Server version",
+      "Perform manual testing of sp_getrecentdocuments function with various parameter combinations",
+      "Compare actual execution results between SQL Server and PostgreSQL with identical test data",
+      "Verify date/time calculations produce equivalent results given timezone considerations",
+      "Test NULL parameter handling in the PostgreSQL function matches SQL Server procedure behavior"
+    ]
+  }
+}

@@ -1,4 +1,4 @@
-using DocumentProcessor.Core.Interfaces;
+﻿using DocumentProcessor.Core.Interfaces;
 using DocumentProcessor.Infrastructure.AI;
 using DocumentProcessor.Infrastructure.BackgroundTasks;
 using DocumentProcessor.Infrastructure.Data;
@@ -20,7 +20,7 @@ public static class InfrastructureServiceCollectionExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // Add Entity Framework - Always use SQL Server (RDS)
+        // Add Entity Framework - Always use PostgreSQL (RDS)
         // Default: Use AWS Secrets Manager
         // Fallback: Use local connection string from configuration
         string connectionString;
@@ -41,7 +41,7 @@ public static class InfrastructureServiceCollectionExtensions
             connectionString = localConnectionString;
         }
 
-        services.AddDbContext<ApplicationDbContext>(options => options.UseSqlServer(connectionString));
+        services.AddDbContext<ApplicationDbContext>(options => options.UseNpgsql(connectionString));
 
         // Register repositories
         services.AddScoped<IDocumentRepository, DocumentRepository>();
@@ -139,57 +139,75 @@ public static class InfrastructureServiceCollectionExtensions
                 logger.LogInformation("Database created successfully from model");
 
                 // Create database view for document summaries
-                logger.LogInformation("Creating database view: vw_DocumentSummary");
+                logger.LogInformation("Creating database view: vw_documentsummary");
                 await context.Database.ExecuteSqlRawAsync(@"
-                    CREATE VIEW vw_DocumentSummary AS
+                    CREATE VIEW dps_dbo.vw_documentsummary AS
                     SELECT
-                        DocumentTypeName,
-                        Status,
-                        COUNT(*) AS DocumentCount,
-                        AVG(DATEDIFF(SECOND, UploadedAt, COALESCE(ProcessedAt, GETUTCDATE()))) AS AvgProcessingTimeSeconds,
-                        MIN(UploadedAt) AS FirstUploadedAt,
-                        MAX(UploadedAt) AS LastUploadedAt
-                    FROM Documents
-                    WHERE IsDeleted = 0
-                    GROUP BY DocumentTypeName, Status
+                        documenttypename,
+                        status,
+                        COUNT(*) AS documentcount,
+                        AVG(aws_sqlserver_ext.datediff('second', uploadedat::TIMESTAMP, COALESCE(processedat, timezone('UTC', CURRENT_TIMESTAMP(6)))::TIMESTAMP)) AS avgprocessingtimeseconds,
+                        MIN(uploadedat) AS firstuploadedat,
+                        MAX(uploadedat) AS lastuploadedat
+                    FROM dps_dbo.documents
+                    WHERE isdeleted = 0
+                    GROUP BY documenttypename, status
                 ");
-                logger.LogInformation("Created view: vw_DocumentSummary");
+                logger.LogInformation("Created view: vw_documentsummary");
 
-                // Create stored procedure for getting recent documents
-                logger.LogInformation("Creating stored procedure: sp_GetRecentDocuments");
+                // Create function for getting recent documents
+                logger.LogInformation("Creating function: sp_getrecentdocuments");
                 await context.Database.ExecuteSqlRawAsync(@"
-                    CREATE PROCEDURE sp_GetRecentDocuments
-                        @Days INT = 7,
-                        @Status INT = NULL,
-                        @DocumentTypeName NVARCHAR(200) = NULL
-                    AS
+                    CREATE OR REPLACE FUNCTION dps_dbo.sp_getrecentdocuments(
+                        days INTEGER DEFAULT 7,
+                        status_param INTEGER DEFAULT NULL,
+                        documenttypename_param VARCHAR(200) DEFAULT NULL
+                    )
+                    RETURNS TABLE (
+                        id UUID,
+                        filename VARCHAR(500),
+                        fileextension VARCHAR(50),
+                        storagepath VARCHAR(1000),
+                        filesize BIGINT,
+                        documenttypename VARCHAR(200),
+                        documenttypecategory VARCHAR(100),
+                        status INTEGER,
+                        processingstatus INTEGER,
+                        summary TEXT,
+                        uploadedat TIMESTAMP,
+                        processedat TIMESTAMP,
+                        processingstartedat TIMESTAMP,
+                        processingcompletedat TIMESTAMP
+                    )
+                    LANGUAGE plpgsql
+                    AS $
                     BEGIN
-                        SET NOCOUNT ON;
-
+                        RETURN QUERY
                         SELECT
-                            Id,
-                            FileName,
-                            FileExtension,
-                            StoragePath,
-                            FileSize,
-                            DocumentTypeName,
-                            DocumentTypeCategory,
-                            Status,
-                            ProcessingStatus,
-                            Summary,
-                            UploadedAt,
-                            ProcessedAt,
-                            ProcessingStartedAt,
-                            ProcessingCompletedAt
-                        FROM Documents
-                        WHERE IsDeleted = 0
-                            AND UploadedAt >= DATEADD(DAY, -@Days, GETUTCDATE())
-                            AND (@Status IS NULL OR Status = @Status)
-                            AND (@DocumentTypeName IS NULL OR DocumentTypeName = @DocumentTypeName)
-                        ORDER BY UploadedAt DESC
-                    END
+                            d.id,
+                            d.filename,
+                            d.fileextension,
+                            d.storagepath,
+                            d.filesize,
+                            d.documenttypename,
+                            d.documenttypecategory,
+                            d.status,
+                            d.processingstatus,
+                            d.summary,
+                            d.uploadedat,
+                            d.processedat,
+                            d.processingstartedat,
+                            d.processingcompletedat
+                        FROM dps_dbo.documents d
+                        WHERE d.isdeleted = 0
+                            AND d.uploadedat >= (timezone('UTC', CURRENT_TIMESTAMP) - make_interval(days => days))
+                            AND (status_param IS NULL OR d.status = status_param)
+                            AND (documenttypename_param IS NULL OR d.documenttypename = documenttypename_param)
+                        ORDER BY d.uploadedat DESC;
+                    END;
+                    $
                 ");
-                logger.LogInformation("Created stored procedure: sp_GetRecentDocuments");
+                logger.LogInformation("Created function: sp_getrecentdocuments");
             }
             else
             {
@@ -204,7 +222,7 @@ public static class InfrastructureServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Builds a string from AWS Secrets Manager
+    /// Builds a PostgreSQL connection string from AWS Secrets Manager
     /// </summary>
     /// 
     private static async Task<string> BuildConnectionStringFromSecretsManager()
@@ -214,7 +232,8 @@ public static class InfrastructureServiceCollectionExtensions
 
         try
         {
-            secretJson = await secretsService.GetSecretAsync("atx-db-modernization-atx-db-modernization-1-target");
+            // Use the target PostgreSQL database secret
+            secretJson = await secretsService.GetSecretAsync("arn:aws:secretsmanager:us-east-1:050752607737:secret:atx-db-modernization-atx-db-modernization-1-target-cluvvE");
             if (!string.IsNullOrWhiteSpace(secretJson))
             {
                 var username = secretsService.GetFieldFromSecret(secretJson, "username");
@@ -228,18 +247,6 @@ public static class InfrastructureServiceCollectionExtensions
         }
         catch (Exception)
         {
-        }
-
-        secretJson = await secretsService.GetSecretByDescriptionPrefixAsync("Password for RDS MSSQL used for MAM319.");
-        if (!string.IsNullOrWhiteSpace(secretJson))
-        {
-            var username = secretsService.GetFieldFromSecret(secretJson, "username");
-            var password = secretsService.GetFieldFromSecret(secretJson, "password");
-            var host = secretsService.GetFieldFromSecret(secretJson, "host");
-            var port = secretsService.GetFieldFromSecret(secretJson, "port");
-            var dbname = secretsService.GetFieldFromSecret(secretJson, "dbname");
-
-            return $"Server={host},{port};Database={dbname};User Id={username};Password={password};TrustServerCertificate=true;Encrypt=true";
         }
 
         throw new InvalidOperationException("Failed to retrieve database credentials from Secrets Manager.");

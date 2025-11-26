@@ -1,0 +1,94 @@
+{
+  "conversion_date": "2025-01-25",
+  "total_statements": 2,
+  "statements_converted_by_dms": 1,
+  "statements_requiring_manual_intervention": 1,
+  "conversions": [
+    {
+      "statement_id": "view_1",
+      "statement_type": "CREATE VIEW",
+      "view_name": "vw_DocumentSummary",
+      "file_path": "src/DocumentProcessor.Infrastructure/InfrastructureServiceCollectionExtensions.cs",
+      "line_number": 143,
+      "original_sql": "CREATE VIEW vw_DocumentSummary AS\nSELECT\n    documenttypename,\n    status,\n    COUNT(*) AS DocumentCount,\n    AVG(DATEDIFF(SECOND, uploadedat, COALESCE(processedat, GETUTCDATE()))) AS AvgProcessingTimeSeconds,\n    MIN(uploadedat) AS FirstUploadedAt,\n    MAX(uploadedat) AS LastUploadedAt\nFROM dps_dbo.documents\nWHERE isdeleted = 0\nGROUP BY documenttypename, status",
+      "converted_sql": "CREATE VIEW dps_dbo.vw_documentsummary\nAS\nSELECT\n    documenttypename, status, COUNT(*) AS documentcount, AVG(aws_sqlserver_ext.datediff('second', uploadedat::TIMESTAMP, COALESCE(processedat, timezone('UTC', CURRENT_TIMESTAMP(6)))::TIMESTAMP)) AS avgprocessingtimeseconds, MIN(uploadedat) AS firstuploadedat, MAX(uploadedat) AS lastuploadedat\n    FROM dps_dbo.documents\n    WHERE isdeleted = 0\n    GROUP BY documenttypename, status;",
+      "conversion_method": "DMS_TOOL",
+      "dms_status": "success",
+      "dms_output": {
+        "conversion_timestamp": "2025-11-25T23:01:03.127938",
+        "status": "success",
+        "converted_sql_count": 1,
+        "workflow_steps": [
+          {
+            "step": "create_metadata_model",
+            "timestamp": "2025-11-25T23:01:05.022865",
+            "status": "completed",
+            "request_identifier": "8651fce9-7530-478d-bf26-46a31b2b6626",
+            "metadata_model_name": "sql-conversion-1764111665",
+            "poll_attempts": 2
+          },
+          {
+            "step": "convert_metadata_model",
+            "timestamp": "2025-11-25T23:01:17.924624",
+            "status": "completed",
+            "conversion_request_identifier": "e6de7a48-c706-438d-bbe7-b0fb9374901d",
+            "poll_attempts": 2
+          },
+          {
+            "step": "extract_converted_sql",
+            "timestamp": "2025-11-25T23:01:30.749548",
+            "status": "completed"
+          }
+        ]
+      },
+      "sql_server_syntax_converted": [
+        "DATEDIFF(SECOND, uploadedat, COALESCE(processedat, GETUTCDATE())) -> aws_sqlserver_ext.datediff('second', uploadedat::TIMESTAMP, COALESCE(processedat, timezone('UTC', CURRENT_TIMESTAMP(6)))::TIMESTAMP)",
+        "Object names converted to lowercase: vw_DocumentSummary -> vw_documentsummary, DocumentCount -> documentcount"
+      ],
+      "schema_changes": {
+        "view_name": "vw_DocumentSummary -> dps_dbo.vw_documentsummary",
+        "column_names": "Mixed case -> lowercase"
+      }
+    },
+    {
+      "statement_id": "procedure_1",
+      "statement_type": "CREATE PROCEDURE",
+      "procedure_name": "sp_GetRecentDocuments",
+      "file_path": "src/DocumentProcessor.Infrastructure/InfrastructureServiceCollectionExtensions.cs",
+      "line_number": 160,
+      "original_sql": "CREATE PROCEDURE sp_GetRecentDocuments\n    @Days INT = 7,\n    @Status INT = NULL,\n    @DocumentTypeName NVARCHAR(200) = NULL\nAS\nBEGIN\n    SET NOCOUNT ON;\n\n    SELECT\n        id,\n        filename,\n        fileextension,\n        storagepath,\n        filesize,\n        documenttypename,\n        documenttypecategory,\n        status,\n        processingstatus,\n        summary,\n        uploadedat,\n        processedat,\n        processingstartedat,\n        processingcompletedat\n    FROM dps_dbo.documents\n    WHERE isdeleted = 0\n        AND uploadedat >= DATEADD(DAY, -@Days, GETUTCDATE())\n        AND (@Status IS NULL OR status = @Status)\n        AND (@DocumentTypeName IS NULL OR documenttypename = @DocumentTypeName)\n    ORDER BY uploadedat DESC\nEND",
+      "converted_sql": "CREATE OR REPLACE FUNCTION dps_dbo.sp_getrecentdocuments(\n    days INTEGER DEFAULT 7,\n    status_param INTEGER DEFAULT NULL,\n    documenttypename_param VARCHAR(200) DEFAULT NULL\n)\nRETURNS TABLE (\n    id UUID,\n    filename VARCHAR(500),\n    fileextension VARCHAR(50),\n    storagepath VARCHAR(1000),\n    filesize BIGINT,\n    documenttypename VARCHAR(200),\n    documenttypecategory VARCHAR(100),\n    status INTEGER,\n    processingstatus INTEGER,\n    summary TEXT,\n    uploadedat TIMESTAMP,\n    processedat TIMESTAMP,\n    processingstartedat TIMESTAMP,\n    processingcompletedat TIMESTAMP\n)\nLANGUAGE plpgsql\nAS $$\nBEGIN\n    RETURN QUERY\n    SELECT\n        d.id,\n        d.filename,\n        d.fileextension,\n        d.storagepath,\n        d.filesize,\n        d.documenttypename,\n        d.documenttypecategory,\n        d.status,\n        d.processingstatus,\n        d.summary,\n        d.uploadedat,\n        d.processedat,\n        d.processingstartedat,\n        d.processingcompletedat\n    FROM dps_dbo.documents d\n    WHERE d.isdeleted = 0\n        AND d.uploadedat >= (timezone('UTC', CURRENT_TIMESTAMP) - make_interval(days => days))\n        AND (status_param IS NULL OR d.status = status_param)\n        AND (documenttypename_param IS NULL OR d.documenttypename = documenttypename_param)\n    ORDER BY d.uploadedat DESC;\nEND;\n$$;",
+      "conversion_method": "MANUAL_AFTER_DMS_FAILURE",
+      "dms_status": "error",
+      "dms_output": {
+        "conversion_timestamp": "2025-11-25T23:01:46.221782",
+        "status": "error",
+        "error": "Metadata model creation failed: {'error': \"Metadata model creation failed: {'default_error_details': {'message': 'Statement definition is not valid.'}}\"}",
+        "error_timestamp": "2025-11-25T23:02:00.865663",
+        "workflow_steps": [
+          {
+            "step": "create_metadata_model",
+            "timestamp": "2025-11-25T23:01:48.036942",
+            "status": "started"
+          }
+        ]
+      },
+      "dms_error_details": "DMS tool could not create metadata model. Error: 'Statement definition is not valid.' Manual conversion was performed.",
+      "sql_server_syntax_converted": [
+        "CREATE PROCEDURE -> CREATE OR REPLACE FUNCTION",
+        "@Days INT -> days INTEGER",
+        "@Status INT -> status_param INTEGER",
+        "@DocumentTypeName NVARCHAR(200) -> documenttypename_param VARCHAR(200)",
+        "AS BEGIN...END -> RETURNS TABLE...LANGUAGE plpgsql AS $$ BEGIN...END; $$",
+        "SET NOCOUNT ON -> (removed)",
+        "DATEADD(DAY, -@Days, GETUTCDATE()) -> (timezone('UTC', CURRENT_TIMESTAMP) - make_interval(days => days))"
+      ],
+      "schema_changes": {
+        "object_type": "PROCEDURE -> FUNCTION",
+        "object_name": "sp_GetRecentDocuments -> dps_dbo.sp_getrecentdocuments",
+        "parameter_names": "Renamed to avoid column conflicts (status -> status_param, documenttypename -> documenttypename_param)"
+      },
+      "manual_conversion_rationale": "DMS tool failed to parse CREATE PROCEDURE statement. Manual conversion applied following PostgreSQL function syntax, converting T-SQL stored procedure to plpgsql function with RETURNS TABLE."
+    }
+  ]
+}

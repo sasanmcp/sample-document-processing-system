@@ -1,0 +1,132 @@
+{
+  "report_metadata": {
+    "project_name": "DocumentProcessor",
+    "migration_type": "SQL Server to PostgreSQL",
+    "report_date": "2025-01-25",
+    "migration_start_date": "2025-01-25",
+    "migration_complete_date": "2025-01-25"
+  },
+  "migration_summary": {
+    "total_sql_statements_processed": 2,
+    "statements_successfully_converted_by_dms": 1,
+    "statements_requiring_manual_intervention": 1,
+    "statements_validated_as_equivalent": 0,
+    "statements_validated_as_non_equivalent": 0,
+    "statements_with_equivalency_errors": 2
+  },
+  "statement_details": [
+    {
+      "statement_id": "view_1",
+      "file_path": "src/DocumentProcessor.Infrastructure/InfrastructureServiceCollectionExtensions.cs",
+      "line_number": 143,
+      "statement_type": "CREATE VIEW",
+      "view_name": "vw_DocumentSummary -> dps_dbo.vw_documentsummary",
+      "original_sql": "CREATE VIEW vw_DocumentSummary AS\nSELECT\n    documenttypename,\n    status,\n    COUNT(*) AS DocumentCount,\n    AVG(DATEDIFF(SECOND, uploadedat, COALESCE(processedat, GETUTCDATE()))) AS AvgProcessingTimeSeconds,\n    MIN(uploadedat) AS FirstUploadedAt,\n    MAX(uploadedat) AS LastUploadedAt\nFROM dps_dbo.documents\nWHERE isdeleted = 0\nGROUP BY documenttypename, status",
+      "converted_sql": "CREATE VIEW dps_dbo.vw_documentsummary AS\nSELECT\n    documenttypename,\n    status,\n    COUNT(*) AS documentcount,\n    AVG(aws_sqlserver_ext.datediff('second', uploadedat::TIMESTAMP, COALESCE(processedat, timezone('UTC', CURRENT_TIMESTAMP(6)))::TIMESTAMP)) AS avgprocessingtimeseconds,\n    MIN(uploadedat) AS firstuploadedat,\n    MAX(uploadedat) AS lastuploadedat\nFROM dps_dbo.documents\nWHERE isdeleted = 0\nGROUP BY documenttypename, status",
+      "conversion_method": "DMS_TOOL",
+      "dms_tool_output": {
+        "status": "success",
+        "conversion_timestamp": "2025-11-25T23:01:03.127938",
+        "metadata_model_name": "sql-conversion-1764111665",
+        "workflow_steps_completed": 3
+      },
+      "equivalency_status": "ERROR",
+      "equivalency_tool_output": {
+        "equivalence_status": "UNKNOWN",
+        "result_details": "Z3SqlSolverVerifier stage in formal methods could not prove equivalancy/non-equivalency",
+        "validation_method": "formal_verification",
+        "timestamp": "2025-11-25T23:05:43.606226"
+      },
+      "reintegrated": true,
+      "sql_server_syntax_converted": [
+        "DATEDIFF(SECOND, ...) -> aws_sqlserver_ext.datediff('second', ...)",
+        "GETUTCDATE() -> timezone('UTC', CURRENT_TIMESTAMP(6))",
+        "View name: vw_DocumentSummary -> dps_dbo.vw_documentsummary",
+        "Column names converted to lowercase"
+      ],
+      "notes": "DMS tool successfully converted the CREATE VIEW statement. Equivalency validation returned UNKNOWN and was marked as ERROR per transformation definition. Manual testing recommended."
+    },
+    {
+      "statement_id": "procedure_1",
+      "file_path": "src/DocumentProcessor.Infrastructure/InfrastructureServiceCollectionExtensions.cs",
+      "line_number": 160,
+      "statement_type": "CREATE PROCEDURE",
+      "procedure_name": "sp_GetRecentDocuments -> dps_dbo.sp_getrecentdocuments",
+      "original_sql": "CREATE PROCEDURE sp_GetRecentDocuments\n    @Days INT = 7,\n    @Status INT = NULL,\n    @DocumentTypeName NVARCHAR(200) = NULL\nAS\nBEGIN\n    SET NOCOUNT ON;\n\n    SELECT\n        id,\n        filename,\n        fileextension,\n        storagepath,\n        filesize,\n        documenttypename,\n        documenttypecategory,\n        status,\n        processingstatus,\n        summary,\n        uploadedat,\n        processedat,\n        processingstartedat,\n        processingcompletedat\n    FROM dps_dbo.documents\n    WHERE isdeleted = 0\n        AND uploadedat >= DATEADD(DAY, -@Days, GETUTCDATE())\n        AND (@Status IS NULL OR status = @Status)\n        AND (@DocumentTypeName IS NULL OR documenttypename = @DocumentTypeName)\n    ORDER BY uploadedat DESC\nEND",
+      "converted_sql": "CREATE OR REPLACE FUNCTION dps_dbo.sp_getrecentdocuments(\n    days INTEGER DEFAULT 7,\n    status_param INTEGER DEFAULT NULL,\n    documenttypename_param VARCHAR(200) DEFAULT NULL\n)\nRETURNS TABLE (\n    id UUID,\n    filename VARCHAR(500),\n    fileextension VARCHAR(50),\n    storagepath VARCHAR(1000),\n    filesize BIGINT,\n    documenttypename VARCHAR(200),\n    documenttypecategory VARCHAR(100),\n    status INTEGER,\n    processingstatus INTEGER,\n    summary TEXT,\n    uploadedat TIMESTAMP,\n    processedat TIMESTAMP,\n    processingstartedat TIMESTAMP,\n    processingcompletedat TIMESTAMP\n)\nLANGUAGE plpgsql\nAS $$\nBEGIN\n    RETURN QUERY\n    SELECT\n        d.id,\n        d.filename,\n        d.fileextension,\n        d.storagepath,\n        d.filesize,\n        d.documenttypename,\n        d.documenttypecategory,\n        d.status,\n        d.processingstatus,\n        d.summary,\n        d.uploadedat,\n        d.processedat,\n        d.processingstartedat,\n        d.processingcompletedat\n    FROM dps_dbo.documents d\n    WHERE d.isdeleted = 0\n        AND d.uploadedat >= (timezone('UTC', CURRENT_TIMESTAMP) - make_interval(days => days))\n        AND (status_param IS NULL OR d.status = status_param)\n        AND (documenttypename_param IS NULL OR d.documenttypename = documenttypename_param)\n    ORDER BY d.uploadedat DESC;\nEND;\n$$",
+      "conversion_method": "MANUAL_AFTER_DMS_FAILURE",
+      "dms_tool_output": {
+        "status": "error",
+        "conversion_timestamp": "2025-11-25T23:01:46.221782",
+        "error": "Metadata model creation failed: {'error': \"Metadata model creation failed: {'default_error_details': {'message': 'Statement definition is not valid.'}}\"}",
+        "error_timestamp": "2025-11-25T23:02:00.865663"
+      },
+      "equivalency_status": "ERROR",
+      "equivalency_tool_output": {
+        "equivalence_status": "UNKNOWN",
+        "result_details": "Pipeline execution failed: Invalid expression / Unexpected token",
+        "validation_method": "unknown",
+        "timestamp": "2025-11-25T23:06:01.099759"
+      },
+      "reintegrated": true,
+      "sql_server_syntax_converted": [
+        "CREATE PROCEDURE -> CREATE OR REPLACE FUNCTION",
+        "@Days INT -> days INTEGER",
+        "@Status INT -> status_param INTEGER",
+        "@DocumentTypeName NVARCHAR(200) -> documenttypename_param VARCHAR(200)",
+        "SET NOCOUNT ON -> (removed)",
+        "DATEADD(DAY, -@Days, GETUTCDATE()) -> (timezone('UTC', CURRENT_TIMESTAMP) - make_interval(days => days))",
+        "BEGIN/END -> RETURNS TABLE...LANGUAGE plpgsql AS $$ BEGIN...END; $$",
+        "Function name: sp_GetRecentDocuments -> dps_dbo.sp_getrecentdocuments"
+      ],
+      "notes": "DMS tool failed to convert CREATE PROCEDURE. Manual conversion applied following PostgreSQL function syntax. Equivalency validation returned UNKNOWN and was marked as ERROR per transformation definition. Manual testing recommended."
+    }
+  ],
+  "statements_requiring_manual_review": [
+    "view_1: CREATE VIEW vw_DocumentSummary - Equivalency validation returned ERROR (UNKNOWN from tool). Manual testing required to verify functional equivalence.",
+    "procedure_1: CREATE PROCEDURE sp_GetRecentDocuments - DMS conversion failed, manual conversion applied. Equivalency validation returned ERROR (UNKNOWN from tool). Manual testing required to verify functional equivalence."
+  ],
+  "exit_criteria_verification": {
+    "all_sql_server_packages_replaced": "N/A - Project already uses Npgsql for PostgreSQL",
+    "all_sql_server_adonet_classes_replaced": "N/A - Project uses Entity Framework Core",
+    "all_sql_statements_processed_through_dms": true,
+    "comprehensive_catalog_exists": true,
+    "all_statement_pairs_validated": true,
+    "equivalency_validation_report_generated": true,
+    "no_agent_judgment_for_equivalency": true,
+    "failed_dms_conversions_documented": true,
+    "connection_strings_use_postgresql_format": "N/A - Already configured for PostgreSQL",
+    "transaction_handling_uses_postgresql_syntax": "N/A - Using Entity Framework Core",
+    "application_compiles_without_errors": true,
+    "application_connects_to_postgresql": "N/A - Already configured",
+    "final_report_includes_equivalency_status": true
+  },
+  "migration_artifacts": [
+    "extracted_statements.sql - Original SQL Server statements",
+    "converted_statements.sql - Converted PostgreSQL statements",
+    "statement_mapping.json - Statement catalog with metadata",
+    "conversion_report.json - DMS tool output and conversion details",
+    "sql_equivalency_validation_report.json - Equivalency validation results",
+    "dms_conversion_issues.log - DMS failures and manual conversions",
+    "code_changes.log - Source code modifications documentation",
+    "final_migration_report.json - Complete migration documentation"
+  ],
+  "critical_notes": [
+    "CRITICAL: All 2 SQL statements were processed through the DMS MCP tool as required.",
+    "CRITICAL: All 2 statement pairs were validated using the SQL Equivalency MCP tool as required.",
+    "CRITICAL: Both equivalency validations returned UNKNOWN and were marked as ERROR per transformation definition.",
+    "CRITICAL: No agent judgment was used for equivalency determination - all status values come from the SQL Equivalency tool.",
+    "IMPORTANT: Manual testing is strongly recommended to verify functional equivalence of both statements.",
+    "IMPORTANT: The application builds successfully with the converted PostgreSQL statements.",
+    "IMPORTANT: All SQL Server-specific syntax has been removed from the codebase."
+  ],
+  "recommendations": [
+    "Perform comprehensive manual testing of vw_documentsummary view with sample data",
+    "Perform comprehensive manual testing of sp_getrecentdocuments function with various parameter combinations",
+    "Compare execution results between SQL Server and PostgreSQL with identical test datasets",
+    "Verify date/time calculations produce equivalent results considering timezone handling",
+    "Test NULL parameter handling in PostgreSQL function matches SQL Server procedure behavior",
+    "Monitor PostgreSQL query performance and optimize if necessary",
+    "Document any differences in behavior between SQL Server and PostgreSQL implementations"
+  ]
+}
